@@ -1,0 +1,106 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function hasRole(role) {
+      return isAuthenticated() && getUserData().role == role;
+    }
+    
+    function isAdmin() {
+      return hasRole('admin') || hasRole('principal');
+    }
+
+    // Default deny rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // 2. Students collection
+    match /students/{studentId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasRole('teacher');
+    }
+
+    // 3. Teachers collection
+    match /teachers/{teacherId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 4. Courses & Batches
+    match /courses/{courseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /batches/{batchId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 5. Fees and Receipts
+    match /fees/{receiptId} {
+      allow read: if isAuthenticated() && (isAdmin() || getUserData().role == 'student' && resource.data.studentId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    // 6. Attendance
+    match /attendance/{attendanceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasRole('teacher');
+    }
+
+    match /teacherAttendance/{tAttendanceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasRole('teacher');
+    }
+
+    // 7. Library books
+    match /books/{bookId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 8. Notices and Academic Events
+    match /notices/{noticeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /academicEvents/{eventId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 9. Materials & Quizzes
+    match /materials/{materialId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasRole('teacher');
+    }
+
+    match /quizzes/{quizId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || hasRole('teacher');
+    }
+
+    match /grades/{gradeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+  }
+}

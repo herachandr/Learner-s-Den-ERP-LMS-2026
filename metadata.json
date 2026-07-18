@@ -1,0 +1,11 @@
+{
+  "name": "Learner's Den ERP & LMS",
+  "description": "A comprehensive full-stack ERP and Learning Management System (LMS) for coaching institutes, featuring student directory, fee tracking, schedule timelines, interactive mock-tests, and an AI-powered study companion.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

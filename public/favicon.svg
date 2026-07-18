@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Gradients for Orbits -->
+    <linearGradient id="red-orbit-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff4b5c" />
+      <stop offset="100%" stop-color="#d81b60" />
+    </linearGradient>
+    <linearGradient id="green-orbit-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e676" />
+      <stop offset="100%" stop-color="#00c853" />
+    </linearGradient>
+    <linearGradient id="blue-orbit-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00b0ff" />
+      <stop offset="100%" stop-color="#2979ff" />
+    </linearGradient>
+
+    <!-- Gradients for Spheres -->
+    <radialGradient id="red-sphere-grad" cx="35%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#ff8a80" />
+      <stop offset="60%" stop-color="#ff1744" />
+      <stop offset="100%" stop-color="#b71c1c" />
+    </radialGradient>
+    <radialGradient id="green-sphere-grad" cx="35%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#b9f6ca" />
+      <stop offset="60%" stop-color="#00e676" />
+      <stop offset="100%" stop-color="#004d40" />
+    </radialGradient>
+    <radialGradient id="blue-sphere-grad" cx="35%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#80d8ff" />
+      <stop offset="60%" stop-color="#00b0ff" />
+      <stop offset="100%" stop-color="#0d47a1" />
+    </radialGradient>
+
+    <!-- Gold Edge Gradient for the Book -->
+    <linearGradient id="gold-edge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe082" />
+      <stop offset="50%" stop-color="#ffb300" />
+      <stop offset="100%" stop-color="#ff8f00" />
+    </linearGradient>
+
+    <!-- Paper Gradient -->
+    <linearGradient id="paper-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#fff9e6" />
+    </linearGradient>
+
+    <filter id="logo-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Background container for high-contrast presentation -->
+  <g filter="url(#logo-shadow)">
+    <!-- 1. Horizontal Blue/Cyan Orbit -->
+    <ellipse cx="256" cy="256" rx="245" ry="72" fill="none" stroke="url(#blue-orbit-grad)" stroke-width="12" transform="rotate(-15, 256, 256)" />
+
+    <!-- 2. Inclined Green Orbit -->
+    <ellipse cx="256" cy="256" rx="245" ry="72" fill="none" stroke="url(#green-orbit-grad)" stroke-width="12" transform="rotate(45, 256, 256)" />
+
+    <!-- 3. Vertical Red Orbit -->
+    <ellipse cx="256" cy="256" rx="245" ry="72" fill="none" stroke="url(#red-orbit-grad)" stroke-width="12" transform="rotate(105, 256, 256)" />
+
+    <!-- 4. Electron Spheres on Orbits -->
+    <!-- Blue Sphere (left) -->
+    <circle cx="58" cy="210" r="26" fill="url(#blue-sphere-grad)" stroke="#ffffff" stroke-width="4" />
+    
+    <!-- Green Sphere (top right) -->
+    <circle cx="395" cy="115" r="26" fill="url(#green-sphere-grad)" stroke="#ffffff" stroke-width="4" />
+    
+    <!-- Red Sphere (bottom) -->
+    <circle cx="310" cy="420" r="26" fill="url(#red-sphere-grad)" stroke="#ffffff" stroke-width="4" />
+
+    <!-- 5. Central Open Book -->
+    <!-- Book Backing/Cover (Black/Dark Blue) -->
+    <path d="M 256 312 
+             C 210 286, 170 284, 116 298 
+             L 116 212 
+             C 170 198, 210 200, 256 226 
+             C 302 200, 342 198, 396 212 
+             L 396 298 
+             C 342 284, 302 286, 256 312 Z" 
+          fill="#1a1c23" stroke="#2e313d" stroke-width="5" stroke-linejoin="round" />
+
+    <!-- Gold Edges (Multi-layered effect) -->
+    <path d="M 256 307 
+             C 212 281, 174 279, 122 293 
+             L 122 217 
+             C 174 203, 212 205, 256 231 
+             C 300 205, 338 203, 390 217 
+             L 390 293 
+             C 338 279, 300 281, 256 307 Z" 
+          fill="url(#gold-edge-grad)" />
+
+    <!-- Book Pages (White/Cream paper) -->
+    <!-- Left Page -->
+    <path d="M 256 298 
+             C 212 274, 178 274, 128 286 
+             L 128 210 
+             C 178 198, 212 198, 256 222 Z" 
+          fill="url(#paper-grad)" stroke="#2d3748" stroke-width="3" stroke-linejoin="round" />
+
+    <!-- Right Page -->
+    <path d="M 256 298 
+             C 300 274, 334 274, 384 286 
+             L 384 210 
+             C 334 198, 300 198, 256 222 Z" 
+          fill="url(#paper-grad)" stroke="#2d3748" stroke-width="3" stroke-linejoin="round" />
+
+    <!-- Book Spine / Center shadow -->
+    <path d="M 256 222 L 256 298" stroke="#718096" stroke-width="4" stroke-linecap="round" />
+
+    <!-- Page Content (Text Lines/Graphics) -->
+    <!-- Left Page Lines -->
+    <path d="M 150 228 C 175 220, 205 220, 234 231
+             M 150 242 C 175 234, 205 234, 234 245
+             M 150 256 C 175 248, 205 248, 234 259
+             M 150 270 C 175 262, 205 262, 234 273" 
+          stroke="#4a5568" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.8" />
+
+    <!-- Right Page Lines -->
+    <path d="M 278 231 C 307 220, 337 220, 362 228
+             M 278 245 C 307 234, 337 234, 362 242
+             M 278 259 C 307 248, 337 248, 362 256
+             M 278 273 C 307 262, 337 262, 362 270" 
+          stroke="#4a5568" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.8" />
+  </g>
+</svg>

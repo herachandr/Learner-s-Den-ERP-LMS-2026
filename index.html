@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Learner's Den ERP & LMS</title>
+    
+    <!-- PWA primary details -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#4f46e5" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="shortcut icon" href="/favicon.svg" />
+    
+    <!-- iOS / Safari Native Platform Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Learner's Den" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    
+    <!-- Microsoft / Windows / PC App Support -->
+    <meta name="msapplication-TileColor" content="#4f46e5" />
+    <meta name="application-name" content="Learner's Den" />
+  </head>
+  <body class="bg-slate-50 antialiased selection:bg-indigo-100 select-none md:select-text">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Proactive Service Worker & Cache Cleaner (Prevents stale white-screen during rapid updates) -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          for (let registration of registrations) {
+            registration.unregister().then((success) => {
+              if (success) console.log('Stale Service Worker unregistered.');
+            });
+          }
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => {
+            caches.delete(key).then(() => {
+              console.log('Stale cache storage purged:', key);
+            });
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
+

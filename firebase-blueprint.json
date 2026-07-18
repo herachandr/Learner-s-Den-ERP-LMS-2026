@@ -1,0 +1,118 @@
+{
+  "projectId": "complete-platform-dwrl4",
+  "collections": {
+    "users": {
+      "path": "users",
+      "description": "User profiles including role, status, and approval status",
+      "fields": {
+        "id": "string",
+        "email": "string",
+        "name": "string",
+        "role": "string",
+        "approved": "boolean",
+        "phone": "string"
+      }
+    },
+    "students": {
+      "path": "students",
+      "description": "Student academic and financial master records",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "email": "string",
+        "phone": "string",
+        "parentName": "string",
+        "batchId": "string",
+        "admissionDate": "string",
+        "feeStatus": "string",
+        "totalFeesPaid": "number",
+        "totalFeesDue": "number"
+      }
+    },
+    "teachers": {
+      "path": "teachers",
+      "description": "Faculty profiles and base compensation attributes",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "email": "string",
+        "phone": "string",
+        "subject": "string",
+        "approved": "boolean"
+      }
+    },
+    "courses": {
+      "path": "courses",
+      "description": "Course catalog offerings",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "description": "string",
+        "duration": "string",
+        "fee": "number"
+      }
+    },
+    "batches": {
+      "path": "batches",
+      "description": "Class cohorts maps to courses and teachers",
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "courseId": "string",
+        "teacherId": "string",
+        "schedule": "string",
+        "room": "string",
+        "academicYear": "string"
+      }
+    },
+    "fees": {
+      "path": "fees",
+      "description": "Receipt ledger of fee payments",
+      "fields": {
+        "id": "string",
+        "studentId": "string",
+        "amount": "number",
+        "date": "string",
+        "paymentMode": "string",
+        "receiptNo": "string"
+      }
+    },
+    "attendance": {
+      "path": "attendance",
+      "description": "Student attendance registry records",
+      "fields": {
+        "id": "string",
+        "studentId": "string",
+        "date": "string",
+        "status": "string",
+        "batchId": "string"
+      }
+    },
+    "teacherAttendance": {
+      "path": "teacherAttendance",
+      "description": "Teacher clock logs and verification coordinates",
+      "fields": {
+        "id": "string",
+        "teacherId": "string",
+        "date": "string",
+        "timeIn": "string",
+        "timeOut": "string",
+        "mode": "string",
+        "hoursWorked": "number",
+        "verified": "boolean"
+      }
+    },
+    "books": {
+      "path": "books",
+      "description": "Digital library resource items",
+      "fields": {
+        "id": "string",
+        "title": "string",
+        "resourceType": "string",
+        "subject": "string",
+        "author": "string",
+        "fileUrl": "string"
+      }
+    }
+  }
+}
