@@ -1,7 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+    
+    // ==========================================
+    //           1. GLOBAL HELPERS
+    // ==========================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -14,93 +18,323 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().role == role;
     }
     
+    // Bootstrapped administrator check based on custom email list & runtime profile
     function isAdmin() {
-      return hasRole('admin') || hasRole('principal');
+      return isAuthenticated() && (
+        hasRole('admin') || 
+        hasRole('principal') || 
+        (request.auth.token.email == 'herachandr@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+    
+    function isTeacher() {
+      return hasRole('teacher');
+    }
+    
+    function isReception() {
+      return hasRole('reception') || hasRole('receptionist') || hasRole('office_staff');
+    }
+    
+    function isAccountant() {
+      return hasRole('accountant');
+    }
+    
+    function isLibrarian() {
+      return hasRole('librarian');
+    }
+    
+    function isStudent() {
+      return hasRole('student');
+    }
+    
+    function isParent() {
+      return hasRole('parent');
+    }
+    
+    function isWarden() {
+      return hasRole('hostel_warden') || hasRole('hostel warden') || hasRole('warden');
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
     }
 
-    // Default deny rule
+    // ==========================================
+    //          2. ENTITY SHAPE VALIDATIONS
+    // ==========================================
+
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.name is string && data.name.size() <= 200;
+    }
+
+    function isValidStudent(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 200;
+    }
+
+    function isValidTeacher(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 200;
+    }
+
+    function isValidCourse(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.fee is number;
+    }
+
+    function isValidBatch(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 200 &&
+             data.courseId is string && data.courseId.size() <= 128;
+    }
+
+    function isValidFee(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.amount is number;
+    }
+
+    function isValidAttendance(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.batchId is string && data.batchId.size() <= 128;
+    }
+
+    function isValidTeacherAttendance(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.teacherId is string && data.teacherId.size() <= 128;
+    }
+
+    function isValidBook(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidQuiz(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidGrade(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.quizId is string && data.quizId.size() <= 128 &&
+             data.score is number;
+    }
+
+    function isValidMaterial(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidNotice(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidAcademicEvent(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidRemark(data) {
+      return data.id is string && data.id.size() <= 128;
+    }
+
+    function isValidLeave(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.teacherId is string && data.teacherId.size() <= 128;
+    }
+
+    // ==========================================
+    //         3. DEFAULT CATCH-ALL BLOCK
+    // ==========================================
+
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // 1. Users collection
+    // ==========================================
+    //         4. COLLECTION SPECIFIC RULES
+    // ==========================================
+
+    // Users & Roles Master
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
-      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && isValidId(userId) && (request.auth.uid == userId || isAdmin()) && isValidUser(incoming()) && (isAdmin() || incoming().role == 'student' || incoming().role == 'guest');
+      allow update: if isAuthenticated() && isValidId(userId) && (request.auth.uid == userId || isAdmin()) && isValidUser(incoming()) && (isAdmin() || (incoming().role == existing().role && incoming().approved == existing().approved));
+      allow delete: if isAdmin();
     }
 
-    // 2. Students collection
+    // Students
     match /students/{studentId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasRole('teacher');
+      allow read: if isAuthenticated() && isValidId(studentId) && (isAdmin() || isTeacher() || isReception() || request.auth.uid == studentId || (isParent() && getUserData().associatedId == studentId));
+      allow create: if (isAdmin() || isReception()) && isValidId(studentId) && isValidStudent(incoming());
+      allow update: if isAuthenticated() && isValidId(studentId) && (isAdmin() || isReception() || request.auth.uid == studentId) && isValidStudent(incoming()) && (isAdmin() || isReception() || (incoming().feeStatus == existing().feeStatus && incoming().totalFeesPaid == existing().totalFeesPaid && incoming().totalFeesDue == existing().totalFeesDue));
+      allow delete: if isAdmin();
     }
 
-    // 3. Teachers collection
+    // Teachers
     match /teachers/{teacherId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(teacherId);
+      allow create, update: if (isAdmin() || hasRole('principal')) && isValidId(teacherId) && isValidTeacher(incoming());
+      allow delete: if isAdmin();
     }
 
-    // 4. Courses & Batches
+    // Courses
     match /courses/{courseId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(courseId);
+      allow create, update: if (isAdmin() || hasRole('principal')) && isValidId(courseId) && isValidCourse(incoming());
+      allow delete: if isAdmin();
     }
-    
+
+    // Batches
     match /batches/{batchId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(batchId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isReception()) && isValidId(batchId) && isValidBatch(incoming());
+      allow delete: if isAdmin();
     }
 
-    // 5. Fees and Receipts
+    // Fees receipts ledger
     match /fees/{receiptId} {
-      allow read: if isAuthenticated() && (isAdmin() || getUserData().role == 'student' && resource.data.studentId == request.auth.uid);
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(receiptId) && (isAdmin() || hasRole('principal') || isAccountant() || resource.data.studentId == request.auth.uid || (isParent() && getUserData().associatedId == resource.data.studentId));
+      allow write: if isAdmin() || hasRole('principal') || isAccountant();
     }
 
-    // 6. Attendance
+    // Student Attendance
     match /attendance/{attendanceId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasRole('teacher');
+      allow read: if isAuthenticated() && isValidId(attendanceId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isTeacher() || isReception()) && isValidId(attendanceId) && isValidAttendance(incoming());
+      allow delete: if isAdmin();
     }
 
+    // Teacher Attendance
     match /teacherAttendance/{tAttendanceId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasRole('teacher');
+      allow read: if isAuthenticated() && isValidId(tAttendanceId);
+      allow create: if isAuthenticated() && isValidId(tAttendanceId) && (isAdmin() || hasRole('principal') || (isTeacher() && incoming().teacherId == request.auth.uid)) && isValidTeacherAttendance(incoming());
+      allow update: if isAuthenticated() && isValidId(tAttendanceId) && (isAdmin() || hasRole('principal') || (isTeacher() && incoming().teacherId == request.auth.uid && incoming().verified == existing().verified && incoming().hoursWorked == existing().hoursWorked)) && isValidTeacherAttendance(incoming());
+      allow delete: if isAdmin();
     }
 
-    // 7. Library books
+    // Library catalog books
     match /books/{bookId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(bookId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isLibrarian()) && isValidId(bookId) && isValidBook(incoming());
+      allow delete: if isAdmin();
     }
 
-    // 8. Notices and Academic Events
+    // Notice Board alerts
     match /notices/{noticeId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(noticeId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isReception()) && isValidId(noticeId) && isValidNotice(incoming());
+      allow delete: if isAdmin();
     }
 
+    // Academic Event Calenders
     match /academicEvents/{eventId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if isAuthenticated() && isValidId(eventId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isReception()) && isValidId(eventId) && isValidAcademicEvent(incoming());
+      allow delete: if isAdmin();
     }
 
-    // 9. Materials & Quizzes
+    // Study Materials
     match /materials/{materialId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasRole('teacher');
+      allow read: if isAuthenticated() && isValidId(materialId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isTeacher()) && isValidId(materialId) && isValidMaterial(incoming());
+      allow delete: if isAdmin() || isTeacher();
     }
 
+    // Quizzes & Tests
     match /quizzes/{quizId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || hasRole('teacher');
+      allow read: if isAuthenticated() && isValidId(quizId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isTeacher()) && isValidId(quizId) && isValidQuiz(incoming());
+      allow delete: if isAdmin();
     }
 
+    // Grade Cards score submissions
     match /grades/{gradeId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read: if isAuthenticated() && isValidId(gradeId) && (isAdmin() || isTeacher() || resource.data.studentId == request.auth.uid || (isParent() && getUserData().associatedId == resource.data.studentId));
+      allow create: if isAuthenticated() && isValidId(gradeId) && (isAdmin() || isTeacher() || incoming().studentId == request.auth.uid) && isValidGrade(incoming());
+      allow update: if isAuthenticated() && isValidId(gradeId) && (isAdmin() || isTeacher() || (incoming().studentId == request.auth.uid && incoming().score == existing().score)) && isValidGrade(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Remarks & Daily Class Reports
+    match /remarks/{remarkId} {
+      allow read: if isAuthenticated() && isValidId(remarkId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isTeacher()) && isValidId(remarkId) && isValidRemark(incoming());
+      allow delete: if isAdmin();
+    }
+    match /dailyRemarks/{remarkId} {
+      allow read: if isAuthenticated() && isValidId(remarkId);
+      allow create, update: if (isAdmin() || hasRole('principal') || isTeacher()) && isValidId(remarkId) && isValidRemark(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Anonymous Feedbacks
+    match /anonymousFeedback/{fbId} {
+      allow read: if isAuthenticated() && isValidId(fbId) && (isAdmin() || hasRole('principal') || isReception() || isWarden());
+      allow create: if isValidId(fbId);
+      allow update, delete: if isAdmin();
+    }
+
+    // Public Gallery items
+    match /gallery/{itemId} {
+      allow read: if true;
+      allow create, update: if (isAdmin() || hasRole('principal') || isReception()) && isValidId(itemId);
+      allow delete: if isAdmin();
+    }
+
+    // Institution Profiles
+    match /institution-profile/{profileId} {
+      allow read: if true;
+      allow write: if isAdmin() || hasRole('principal');
+    }
+
+    // Testimonials
+    match /testimonials/{testimonialId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidId(testimonialId);
+      allow update: if isAuthenticated() && isValidId(testimonialId) && (isAdmin() || resource.data.authorId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // Landing Highlights
+    match /highlights/{highlightId} {
+      allow read: if true;
+      allow write: if isAdmin() || hasRole('principal');
+    }
+
+    // Leave Applications
+    match /leaves/{leaveId} {
+      allow read: if isAuthenticated() && isValidId(leaveId) && (isAdmin() || hasRole('principal') || isWarden() || resource.data.teacherId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidId(leaveId) && isTeacher() && incoming().teacherId == request.auth.uid && isValidLeave(incoming());
+      allow update: if isAuthenticated() && isValidId(leaveId) && (isAdmin() || hasRole('principal') || isWarden() || (isTeacher() && incoming().teacherId == request.auth.uid && incoming().status == existing().status)) && isValidLeave(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // Student Career Pathways mapping
+    match /studentPathways/{userId} {
+      allow read: if isAuthenticated() && isValidId(userId) && (isAdmin() || isTeacher() || userId == request.auth.uid || (isParent() && getUserData().associatedId == userId));
+      allow write: if isAuthenticated() && isValidId(userId) && (isAdmin() || isTeacher() || userId == request.auth.uid);
+    }
+
+    // Careers catalog reference
+    match /careers/{careerId} {
+      allow read: if isAuthenticated() && isValidId(careerId);
+      allow write: if isAdmin() || hasRole('principal');
     }
   }
 }

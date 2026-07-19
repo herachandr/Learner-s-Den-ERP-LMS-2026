@@ -50,7 +50,9 @@ import {
   UploadCloud,
   ShieldAlert,
   X,
-  ArrowLeft
+  ArrowLeft,
+  RefreshCw,
+  Terminal
 } from 'lucide-react';
 import Header from './components/Header';
 import StatsGrid from './components/StatsGrid';
@@ -586,6 +588,7 @@ export default function App() {
   });
   const [notices, setNotices] = useState<Notice[]>([]);
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [anonymousFeedback, setAnonymousFeedback] = useState<AnonymousFeedback[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
@@ -788,7 +791,7 @@ export default function App() {
     setLoadingStage('Connecting to Learner\'s Den Secure Cloud... (5%)');
 
     let completed = 0;
-    const totalFetches = 22;
+    const totalFetches = 23;
 
     const updateProgress = (stageName: string) => {
       completed += 1;
@@ -832,6 +835,7 @@ export default function App() {
         fetchWithProgress('/api/teacher-attendance', setTeacherAttendance, 'Calculated instructor payroll ledgers...'),
         fetchWithProgress('/api/notices', setNotices, 'Acquiring active Notice Board announcements...'),
         fetchWithProgress('/api/users', setUsers, 'Synchronized workspace accounts roster...'),
+        fetchWithProgress('/api/system/audit-logs', (data) => setAuditLogs(data.auditLogs || []), 'Downloaded administrative security audit logs...'),
         fetchWithProgress('/api/testimonials', setTestimonials, 'Retrieved positive student and parent testimonials...'),
         fetchWithProgress('/api/anonymous-feedback', setAnonymousFeedback, 'Downloaded feedback box complaints...'),
         fetchWithProgress('/api/gallery', setGallery, 'Retrieved interactive photo archive...'),
@@ -1761,6 +1765,137 @@ export default function App() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Security & System Operations Audit Trail */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xxs text-left">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4 pb-3 border-b border-slate-100">
+          <div>
+            <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
+              <ShieldAlert className="h-4.5 w-4.5 text-indigo-600" />
+              <span>Security Operations & Audit Trail</span>
+            </h3>
+            <p className="text-xxs text-slate-400 font-semibold mt-0.5">Real-time immutable ledger tracking all administrative access and data mutations</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/system/audit-logs', {
+                    headers: {
+                      'x-user-role': currentUser?.role || '',
+                      'x-user-id': currentUser?.id || ''
+                    }
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setAuditLogs(data.auditLogs || []);
+                    triggerSimulatedNotification("Security audit trail synchronized from cloud successfully.", "Success", "success");
+                  }
+                } catch (e) {
+                  triggerSimulatedNotification("Failed to reload audit logs.", "Error", "error");
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xxs font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all"
+            >
+              <RefreshCw className="h-3 w-3 animate-spin" style={{ animationDuration: '3s' }} />
+              <span>Refresh</span>
+            </button>
+            {currentUser?.role === 'admin' && (
+              <button 
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to permanently purge all security audit trail logs? This action is irreversible and recorded.")) {
+                    try {
+                      const res = await fetch('/api/system/audit-logs/clear', {
+                        method: 'POST',
+                        headers: {
+                          'x-user-role': currentUser?.role || '',
+                          'x-user-id': currentUser?.id || ''
+                        }
+                      });
+                      if (res.ok) {
+                        setAuditLogs([]);
+                        triggerSimulatedNotification("Security audit history has been cleared.", "Audit Logs Purged", "success");
+                      }
+                    } catch (e) {
+                      triggerSimulatedNotification("Failed to clear audit trail.", "Error", "error");
+                    }
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xxs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all"
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>Clear Logs</span>
+              </button>
+            )}
+          </div>
+        </div>
+        
+        {auditLogs.length === 0 ? (
+          <div className="py-8 text-center text-slate-400">
+            <Terminal className="h-8 w-8 mx-auto text-slate-300 mb-2" />
+            <p className="text-xs font-semibold">No operations recorded in audit trail ledger.</p>
+            <p className="text-xxs text-slate-400">Trigger standard modifications (e.g., student edits or fee receipt generation) to log actions.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left text-slate-600">
+              <thead>
+                <tr className="bg-slate-50 text-slate-400 text-xxs font-black uppercase tracking-wider border-b border-slate-100">
+                  <th className="py-2.5 px-3 rounded-l-lg">Timestamp</th>
+                  <th className="py-2.5 px-3">Actor / Role</th>
+                  <th className="py-2.5 px-3">Action</th>
+                  <th className="py-2.5 px-3">Details</th>
+                  <th className="py-2.5 px-3 rounded-r-lg">IP / Terminal</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {[...auditLogs].reverse().slice(0, 50).map((log) => {
+                  let badgeColor = 'bg-slate-50 text-slate-600 border-slate-150';
+                  if (log.action.includes('Enrolled') || log.action.includes('Created')) {
+                    badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-150';
+                  } else if (log.action.includes('Deleted')) {
+                    badgeColor = 'bg-rose-50 text-rose-700 border-rose-150';
+                  } else if (log.action.includes('Updated')) {
+                    badgeColor = 'bg-amber-50 text-amber-700 border-amber-150';
+                  } else if (log.action.includes('Receipt') || log.action.includes('Fee')) {
+                    badgeColor = 'bg-indigo-50 text-indigo-700 border-indigo-150';
+                  }
+
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3 px-3 font-mono text-xxs text-slate-400 whitespace-nowrap">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <div>
+                          <p className="font-bold text-slate-700">{log.userName || log.userEmail}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{log.userRole}</p>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${badgeColor}`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 font-medium text-slate-600 max-w-xs truncate" title={log.details}>
+                        {log.details}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-xxs text-slate-400 whitespace-nowrap">
+                        {log.ip}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {auditLogs.length > 50 && (
+              <p className="text-center text-[10px] text-slate-400 font-bold mt-3">
+                Showing the last 50 administrative security audit log entries.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3408,6 +3543,7 @@ export default function App() {
                     teachers={teachers}
                     teacherAttendance={teacherAttendance}
                     batches={batches}
+                    showToast={(title, desc) => triggerSimulatedNotification(desc, title)}
                   />
                 </div>
               )}

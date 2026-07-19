@@ -19,6 +19,7 @@ interface FeesManagerProps {
   teachers?: Teacher[];
   teacherAttendance?: TeacherAttendance[];
   batches?: Batch[];
+  showToast?: (title: string, desc: string) => void;
 }
 
 interface Expense {
@@ -46,7 +47,8 @@ export default function FeesManager({
   onUpdatePaymentSettings,
   teachers = [],
   teacherAttendance = [],
-  batches = []
+  batches = [],
+  showToast
 }: FeesManagerProps) {
   // Navigation tabs for unified Finance module
   const [activeTab, setActiveTab] = useState<'fees' | 'payroll' | 'expenses' | 'reports'>('fees');
@@ -819,6 +821,47 @@ export default function FeesManager({
     }
   };
 
+  const handleExportFeesCSV = () => {
+    if (filteredReceipts.length === 0) {
+      if (showToast) showToast("No transactions to export", "Try loosening your search filters to find transactions.");
+      else alert('No financial receipts match your search filters to export.');
+      return;
+    }
+    const csvRows = [
+      ["Receipt No", "Date", "Student Name", "Amount Paid (INR)", "Payment Mode", "Payment Type", "Concession Applied", "Concession Amount", "Referral Applied"]
+    ];
+    filteredReceipts.forEach(r => {
+      const studentObj = students.find(s => s.id === r.studentId);
+      const studentName = studentObj ? studentObj.name : r.studentId;
+      csvRows.push([
+        r.receiptNo,
+        r.date,
+        studentName,
+        String(r.amount),
+        r.paymentMode,
+        r.paymentType || 'Full',
+        r.concessionApplied ? 'Yes' : 'No',
+        r.concessionAmount ? String(r.concessionAmount) : '0',
+        r.referralApplied ? 'Yes' : 'No'
+      ]);
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + csvRows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(",")).join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `LearnersDen_Tuition_Fees_Ledger_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    if (showToast) {
+      showToast("Ledger Exported", `Successfully exported ${filteredReceipts.length} fee receipts to CSV.`);
+    }
+  };
+
   return (
     <div className="space-y-6">
       
@@ -1361,15 +1404,30 @@ export default function FeesManager({
                   <p className="text-xxs text-slate-400 font-medium mt-0.5">Historical log records of incoming student term collections.</p>
                 </div>
                 
-                <div className="relative w-full sm:w-48">
-                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search receipt/student..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-xl text-xxs bg-slate-50 font-semibold"
-                  />
+                <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                  <div className="relative w-full sm:w-48">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search receipt/student..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-xl text-xxs bg-slate-50 font-semibold"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportFeesCSV}
+                    disabled={filteredReceipts.length === 0}
+                    className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                      filteredReceipts.length === 0
+                        ? 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'
+                        : 'bg-white border-slate-250 text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Export ledger entries as Excel/Google Sheets compatible CSV"
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 

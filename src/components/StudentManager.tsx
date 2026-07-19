@@ -703,6 +703,51 @@ export default function StudentManager({
     }
   };
 
+  const handleExportStudentCSV = () => {
+    if (filteredStudents.length === 0) {
+      if (showToast) showToast("No students to export", "Try loosening your filters to see more students.");
+      else alert('No students match your active filters to export.');
+      return;
+    }
+    const csvRows = [
+      ["Student ID", "Name", "Email", "Phone", "Parent Name", "Parent Phone", "Parent Email", "Batch", "Admission Date", "Fee Status", "Total Paid", "Total Due", "Address"]
+    ];
+    filteredStudents.forEach(st => {
+      const batchObj = batches.find(b => b.id === st.batchId);
+      const batchName = batchObj ? batchObj.name : st.batchId;
+      csvRows.push([
+        st.id,
+        st.name,
+        st.email,
+        st.phone,
+        st.parentName,
+        st.parentPhone || '',
+        st.parentEmail || '',
+        batchName,
+        st.admissionDate,
+        st.feeStatus,
+        String(st.totalFeesPaid),
+        String(st.totalFeesDue),
+        st.address ? st.address.replace(/\n/g, ' ') : ''
+      ]);
+    });
+    
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + csvRows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(",")).join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `LearnersDen_Student_Directory_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    if (showToast) {
+      showToast("Directory Exported", `Successfully exported ${filteredStudents.length} student records to CSV.`);
+    }
+  };
+
   const handleOpenAdd = () => {
     setName('');
     setEmail('');
@@ -1313,6 +1358,21 @@ export default function StudentManager({
                 <IdCard className="h-4 w-4" />
               )}
               <span>Batch ID Cards ({filteredStudents.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportStudentCSV}
+              disabled={filteredStudents.length === 0}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all border shadow-xs cursor-pointer ${
+                filteredStudents.length === 0
+                  ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-white border-slate-250 text-slate-700 hover:bg-slate-50'
+              }`}
+              title="Export dynamic filtered directory list as Excel/Google Sheets compatible CSV"
+            >
+              <Download className="h-4 w-4 text-slate-500" />
+              <span>Export CSV</span>
             </button>
 
             <button

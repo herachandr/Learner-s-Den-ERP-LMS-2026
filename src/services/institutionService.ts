@@ -1,4 +1,5 @@
 import { AcademicEvent } from '../types';
+import { InstitutionRepository } from '../repositories/InstitutionRepository';
 
 export interface HighlightItem {
   id: string;
@@ -59,166 +60,83 @@ export interface AnonymousFeedback {
 export const institutionService = {
   // Highlights
   async getHighlights(): Promise<HighlightItem[]> {
-    const res = await fetch('/api/highlights');
-    if (!res.ok) throw new Error('Failed to fetch highlights');
-    return res.json();
+    return InstitutionRepository.getHighlights();
   },
   async createHighlight(highlight: Partial<HighlightItem>): Promise<HighlightItem> {
-    const res = await fetch('/api/highlights', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(highlight),
-    });
-    if (!res.ok) throw new Error('Failed to create highlight');
-    return res.json();
+    return InstitutionRepository.createHighlight(highlight);
   },
   async deleteHighlight(id: string): Promise<void> {
-    const res = await fetch(`/api/highlights/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete highlight');
+    return InstitutionRepository.deleteHighlight(id);
   },
 
   // Gallery
   async getGallery(): Promise<GalleryItem[]> {
-    const res = await fetch('/api/gallery');
-    if (!res.ok) throw new Error('Failed to fetch gallery items');
-    return res.json();
+    return InstitutionRepository.getGallery();
   },
   async createGalleryItem(item: Partial<GalleryItem>): Promise<GalleryItem> {
-    const res = await fetch('/api/gallery', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(item),
-    });
-    if (!res.ok) throw new Error('Failed to upload image to gallery');
-    return res.json();
+    return InstitutionRepository.createGalleryItem(item);
   },
   async deleteGalleryItem(id: string): Promise<void> {
-    const res = await fetch(`/api/gallery/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to remove gallery item');
+    return InstitutionRepository.deleteGalleryItem(id);
   },
 
   // Testimonials
   async getTestimonials(): Promise<TestimonialItem[]> {
-    const res = await fetch('/api/testimonials');
-    if (!res.ok) throw new Error('Failed to fetch testimonials');
-    return res.json();
+    return InstitutionRepository.getTestimonials();
   },
   async createTestimonial(testimonial: Partial<TestimonialItem>): Promise<TestimonialItem> {
-    const res = await fetch('/api/testimonials', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(testimonial),
-    });
-    if (!res.ok) throw new Error('Failed to post testimonial');
-    return res.json();
+    return InstitutionRepository.createTestimonial(testimonial);
   },
   async updateTestimonial(id: string, testimonial: Partial<TestimonialItem>): Promise<TestimonialItem> {
-    const res = await fetch(`/api/testimonials/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(testimonial),
-    });
-    if (!res.ok) throw new Error('Failed to moderate testimonial');
-    return res.json();
+    return InstitutionRepository.updateTestimonial(id, testimonial);
   },
   async deleteTestimonial(id: string): Promise<void> {
-    const res = await fetch(`/api/testimonials/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete testimonial');
+    return InstitutionRepository.deleteTestimonial(id);
   },
 
   // Daily Remarks
   async getRemarks(all = false): Promise<DailyRemark[]> {
-    const res = await fetch(`/api/remarks${all ? '?all=true' : ''}`);
-    if (!res.ok) throw new Error('Failed to fetch remarks');
-    return res.json();
+    return InstitutionRepository.getRemarks(all);
   },
   async createRemark(remark: Partial<DailyRemark>): Promise<DailyRemark> {
-    const res = await fetch('/api/remarks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(remark),
-    });
-    if (!res.ok) throw new Error('Failed to record remark');
-    return res.json();
+    return InstitutionRepository.createRemark(remark);
   },
   async updateRemark(id: string, text: string): Promise<DailyRemark> {
-    const res = await fetch(`/api/remarks/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) throw new Error('Failed to update remark');
-    return res.json();
+    return InstitutionRepository.updateRemark(id, text);
   },
   async deleteRemark(id: string, permanent = false): Promise<void> {
-    const res = await fetch(`/api/remarks/${id}${permanent ? '?permanent=true' : ''}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) throw new Error('Failed to delete remark');
+    return InstitutionRepository.deleteRemark(id, permanent);
   },
   async restoreRemark(id: string): Promise<DailyRemark> {
-    const res = await fetch(`/api/remarks/${id}/restore`, {
-      method: 'POST',
-    });
-    if (!res.ok) throw new Error('Failed to restore remark');
-    return res.json();
+    return InstitutionRepository.restoreRemark(id);
   },
 
   // Academic Events
   async getAcademicEvents(): Promise<AcademicEvent[]> {
-    const res = await fetch('/api/academic-events');
-    if (!res.ok) throw new Error('Failed to fetch academic events');
-    return res.json();
+    return InstitutionRepository.getAcademicEvents();
   },
   async createAcademicEvent(event: Partial<AcademicEvent>): Promise<AcademicEvent> {
-    const res = await fetch('/api/academic-events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(event),
-    });
-    if (!res.ok) throw new Error('Failed to create academic event');
-    return res.json();
+    return InstitutionRepository.createAcademicEvent(event);
   },
   async updateAcademicEvent(id: string, event: Partial<AcademicEvent>): Promise<AcademicEvent> {
-    const res = await fetch(`/api/academic-events/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(event),
-    });
-    if (!res.ok) throw new Error('Failed to update academic event');
-    return res.json();
+    return InstitutionRepository.updateAcademicEvent(id, event);
   },
   async deleteAcademicEvent(id: string): Promise<void> {
-    const res = await fetch(`/api/academic-events/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete academic event');
+    return InstitutionRepository.deleteAcademicEvent(id);
   },
 
   // Anonymous Feedback
   async getAnonymousFeedback(): Promise<AnonymousFeedback[]> {
-    const res = await fetch('/api/anonymous-feedback');
-    if (!res.ok) throw new Error('Failed to fetch anonymous feedback list');
-    return res.json();
+    return InstitutionRepository.getAnonymousFeedback();
   },
   async createAnonymousFeedback(feedback: Partial<AnonymousFeedback>): Promise<AnonymousFeedback> {
-    const res = await fetch('/api/anonymous-feedback', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(feedback),
-    });
-    if (!res.ok) throw new Error('Failed to submit feedback');
-    return res.json();
+    return InstitutionRepository.createAnonymousFeedback(feedback);
   },
   async updateAnonymousFeedback(id: string, feedback: Partial<AnonymousFeedback>): Promise<AnonymousFeedback> {
-    const res = await fetch(`/api/anonymous-feedback/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(feedback),
-    });
-    if (!res.ok) throw new Error('Failed to update feedback details');
-    return res.json();
+    return InstitutionRepository.updateAnonymousFeedback(id, feedback);
   },
   async deleteAnonymousFeedback(id: string): Promise<void> {
-    const res = await fetch(`/api/anonymous-feedback/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete feedback');
+    return InstitutionRepository.deleteAnonymousFeedback(id);
   }
 };
+

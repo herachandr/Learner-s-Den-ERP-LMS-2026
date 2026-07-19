@@ -1,52 +1,37 @@
 import { Course, Batch } from '../types';
+import { CourseRepository } from '../repositories/CourseRepository';
 
 export const courseService = {
   async getCourses(): Promise<Course[]> {
-    const res = await fetch('/api/courses');
-    if (!res.ok) throw new Error('Failed to fetch courses');
-    return res.json();
+    return CourseRepository.getCourses();
   },
 
   async createCourse(course: Partial<Course>): Promise<Course> {
-    const res = await fetch('/api/courses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(course),
-    });
-    if (!res.ok) throw new Error('Failed to create course');
-    return res.json();
+    return CourseRepository.createCourse(course);
+  },
+
+  async updateCourse(id: string, course: Partial<Course>): Promise<Course> {
+    return CourseRepository.updateCourse(id, course);
+  },
+
+  async deleteCourse(id: string): Promise<void> {
+    return CourseRepository.deleteCourse(id);
   },
 
   async getBatches(): Promise<Batch[]> {
-    const res = await fetch('/api/batches');
-    if (!res.ok) throw new Error('Failed to fetch batches');
-    return res.json();
+    return CourseRepository.getBatches();
   },
 
   async createBatch(batch: Partial<Batch>): Promise<Batch> {
-    const res = await fetch('/api/batches', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
-    });
-    if (!res.ok) throw new Error('Failed to create batch');
-    return res.json();
+    return CourseRepository.createBatch(batch);
   },
 
   async updateBatch(id: string, batch: Partial<Batch>): Promise<Batch> {
-    const res = await fetch(`/api/batches/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
-    });
-    if (!res.ok) throw new Error('Failed to update batch');
-    return res.json();
+    return CourseRepository.updateBatch(id, batch);
   },
 
   async deleteBatch(id: string): Promise<void> {
-    const res = await fetch(`/api/batches/${id}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) throw new Error('Failed to delete batch');
+    return CourseRepository.deleteBatch(id);
   }
 };
+

@@ -1,0 +1,44 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Catch-all: block all access by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // User profile and verification avatars/photos
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.email == 'herachandr@gmail.com');
+    }
+    
+    // Student academic papers, certificates and profiles
+    match /students/{studentId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == studentId || request.auth.token.email == 'herachandr@gmail.com');
+    }
+    
+    // Teacher employment background check documents and qualifications
+    match /teachers/{teacherId}/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (request.auth.uid == teacherId || request.auth.token.email == 'herachandr@gmail.com');
+    }
+    
+    // E-Books and course materials uploaded to the library catalog
+    match /books/{allPaths=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.token.email == 'herachandr@gmail.com';
+    }
+    
+    // Institution public assets (branding, public gallery)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.token.email == 'herachandr@gmail.com';
+    }
+  }
+}

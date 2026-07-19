@@ -93,7 +93,37 @@ function verifyJwt(token: string): any {
   }
 }
 
+function logStructured(severity: "INFO" | "WARNING" | "ERROR", message: string, payload: any = {}) {
+  const logEntry = {
+    severity,
+    message,
+    time: new Date().toISOString(),
+    ...payload
+  };
+  if (process.env.NODE_ENV === "production") {
+    console.log(JSON.stringify(logEntry));
+  } else {
+    console.log(`[${severity}] ${message}`, Object.keys(payload).length ? JSON.stringify(payload) : "");
+  }
+}
+
 const app = express();
+
+app.use((req, res, next) => {
+  const start = performance.now();
+  res.on("finish", () => {
+    const duration = Math.round(performance.now() - start);
+    logStructured("INFO", `${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`, {
+      method: req.method,
+      url: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: duration,
+      userAgent: req.headers["user-agent"],
+      ip: req.ip
+    });
+  });
+  next();
+});
 const PORT = Number(process.env.PORT) || 8080;
 
 app.use(express.json({ limit: "50mb" }));
@@ -326,6 +356,17 @@ app.use(async (req, res, next) => {
     if (decoded) {
       userRole = decoded.role;
       userId = decoded.id;
+      
+      // Session Security: Verify token has not been revoked/invalidated by a password reset or session clear
+      const dbCheck = readDb();
+      const matchedUserCheck = dbCheck.users ? dbCheck.users.find((u: any) => u.id === decoded.id) : null;
+      if (matchedUserCheck) {
+        const uVer = matchedUserCheck.tokenVersion || 0;
+        const tVer = decoded.tokenVersion || 0;
+        if (tVer < uVer) {
+          return res.status(401).json({ error: "Access denied. Session has been revoked. Please authenticate again." });
+        }
+      }
     } else {
       return res.status(401).json({ error: "Access denied. Authentication token is invalid or expired." });
     }
@@ -1585,6 +1626,28 @@ function syncAutomatedNotices(db: any): boolean {
   return false;
 }
 
+function paginateList(list: any[], pageStr: any, limitStr: any) {
+  const page = parseInt(pageStr, 10);
+  const limit = parseInt(limitStr, 10);
+  
+  if (isNaN(page) || isNaN(limit) || page <= 0 || limit <= 0) {
+    return null;
+  }
+  
+  const total = list.length;
+  const totalPages = Math.ceil(total / limit);
+  const offset = (page - 1) * limit;
+  const paginatedData = list.slice(offset, offset + limit);
+  
+  return {
+    data: paginatedData,
+    page,
+    limit,
+    total,
+    totalPages
+  };
+}
+
 function readDb() {
   if (dbCache) {
     return dbCache;
@@ -1993,7 +2056,52 @@ app.post("/api/system/migrate-to-firestore", async (req, res) => {
   }
 });
 
-// Authentication - Signup
+// Helper functions for OTP and SMS
+function maskPhone(phone: string): string {
+  if (!phone) return "unknown number";
+  const cleaned = phone.replace(/\s+/g, "");
+  if (cleaned.length < 8) return "****" + cleaned.slice(-3);
+  return cleaned.slice(0, 4) + "*****" + cleaned.slice(-3);
+}
+
+async function sendSms(phone: string, message: string) {
+  console.log("==========================================================================");
+  console.log(`[REAL SMS GATEWAY OUTBOX] To: ${phone}`);
+  console.log(`[MESSAGE] ${message}`);
+  console.log("==========================================================================");
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNum = process.env.TWILIO_FROM_NUMBER;
+  
+  if (accountSid && authToken && fromNum) {
+    try {
+      const basicAuth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+      const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${basicAuth}`,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          To: phone,
+          From: fromNum,
+          Body: message
+        })
+      });
+      if (response.ok) {
+        console.log(`[Twilio SMS Success] SMS sent to ${phone}`);
+      } else {
+        const errorText = await response.text();
+        console.error(`[Twilio SMS Error] HTTP ${response.status}: ${errorText}`);
+      }
+    } catch (err: any) {
+      console.error("[Twilio SMS Exception] Failed to send Twilio SMS:", err?.message || err);
+    }
+  }
+}
+
+// Authentication - Signup (Direct creation/compatibility)
 app.post("/api/auth/signup", async (req, res) => {
   const db = readDb();
   if (!db.users) db.users = [];
@@ -2033,7 +2141,6 @@ app.post("/api/auth/signup", async (req, res) => {
     db.teachers.push(newTeacher);
   } else if (role === "student") {
     associatedId = "student-" + Date.now();
-    // Look up batch fee
     let dueAmount = 1500;
     if (batchId) {
       const bObj = db.batches.find((b: any) => b.id === batchId);
@@ -2064,10 +2171,10 @@ app.post("/api/auth/signup", async (req, res) => {
     role,
     associatedId,
     approved: isApproved,
-    verifiedDevices: []
+    verifiedDevices: [],
+    phone: phone || ""
   };
   
-  // Register in Firebase Authentication
   try {
     await getAuth().createUser({
       uid: newUser.id,
@@ -2077,11 +2184,14 @@ app.post("/api/auth/signup", async (req, res) => {
     });
     console.log(`[Firebase Auth] Successfully registered user: ${newUser.email} to Firebase Authentication.`);
   } catch (authErr: any) {
-    console.warn(`[Firebase Auth] Warning: could not register user in Firebase Authentication (might already exist or offline):`, authErr.message);
+    console.warn(`[Firebase Auth] Warning: could not register user in Firebase Authentication:`, authErr.message);
   }
 
   db.users.push(newUser);
   writeDb(db);
+  
+  logAuditAction(req, "Direct Signup", `Direct registration of user: ${newUser.email} (${newUser.role})`);
+
   res.status(201).json({
     id: newUser.id,
     email: newUser.email,
@@ -2092,17 +2202,249 @@ app.post("/api/auth/signup", async (req, res) => {
   });
 });
 
-// Authentication - Login
-app.post("/api/auth/login", (req, res) => {
+// Authentication - Signup OTP Initiation Flow
+app.post("/api/auth/signup/initiate", (req, res) => {
   const db = readDb();
-  const { email, password, deviceId } = req.body;
+  const { email, password, name, role, phone, subject, parentName, batchId } = req.body;
+
+  if (!email || !password || !name || !role || !phone) {
+    return res.status(400).json({ error: "Missing required registration parameters including phone number." });
+  }
+
+  if (role === "admin" && email.toLowerCase() !== "the.den.corporation@gmail.com") {
+    return res.status(400).json({ error: "Only the.den.corporation@gmail.com is authorized to register as an administrator." });
+  }
+
+  const exists = db.users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+  if (exists) {
+    return res.status(400).json({ error: "An account already exists with this email address." });
+  }
+
+  // Generate a registration ID and 6-digit OTP
+  const registrationId = "reg-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6);
+  const otp = crypto.randomInt(100000, 999999).toString();
+  const otpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  const otpExpires = Date.now() + 5 * 60 * 1000; // 5 mins
+
+  if (!db.pendingSignups) db.pendingSignups = [];
+  
+  // Prune expired signups
+  db.pendingSignups = db.pendingSignups.filter((p: any) => p.expires > Date.now());
+
+  db.pendingSignups.push({
+    registrationId,
+    payload: { email, password, name, role, phone, subject, parentName, batchId },
+    otpHash,
+    expires: otpExpires,
+    attempts: 0
+  });
+
+  writeDb(db);
+
+  // Send real SMS OTP and log
+  sendSms(phone, `Your Learner's Den registration verification code is: ${otp}. Valid for 5 minutes.`);
+  logAuditAction(req, "Signup OTP Request", `Registration OTP requested for phone ${phone} (${email})`);
+
+  res.json({
+    success: true,
+    registrationId,
+    maskedPhone: maskPhone(phone),
+    debugOtp: otp // kept for development smtp sandbox mock view
+  });
+});
+
+// Authentication - Signup OTP Verification and Completion Flow
+app.post("/api/auth/signup/verify", async (req, res) => {
+  const db = readDb();
+  const { registrationId, otp } = req.body;
+
+  if (!registrationId || !otp) {
+    return res.status(400).json({ error: "Missing required signup verification parameters." });
+  }
+
+  const index = (db.pendingSignups || []).findIndex((p: any) => p.registrationId === registrationId);
+  if (index === -1) {
+    return res.status(400).json({ error: "Signup session has expired or is invalid. Please start registration again." });
+  }
+
+  const session = db.pendingSignups[index];
+  if (session.expires < Date.now()) {
+    db.pendingSignups.splice(index, 1);
+    writeDb(db);
+    return res.status(400).json({ error: "Signup verification code has expired. Please register again." });
+  }
+
+  if (session.attempts >= 5) {
+    db.pendingSignups.splice(index, 1);
+    writeDb(db);
+    return res.status(400).json({ error: "Maximum verification attempts exceeded. Please register again." });
+  }
+
+  session.attempts++;
+  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+  if (session.otpHash !== hashedOtp) {
+    writeDb(db);
+    return res.status(400).json({ error: "Incorrect verification code. Attempts remaining: " + (5 - session.attempts) });
+  }
+
+  // Verification successful! Create the actual account records
+  const { email, password, name, role, phone, subject, parentName, batchId } = session.payload;
+  let associatedId = undefined;
+  const isApproved = email.toLowerCase() === "the.den.corporation@gmail.com";
+
+  if (role === "teacher") {
+    associatedId = "teacher-" + Date.now();
+    const newTeacher: Teacher = {
+      id: associatedId,
+      name,
+      email,
+      phone: phone || "",
+      subject: subject || "General Studies",
+      batches: [],
+      basePay: 40000,
+      hourlyRate: 1000,
+      payoutType: "Hourly",
+      terminated: false
+    } as any;
+    db.teachers.push(newTeacher);
+  } else if (role === "student") {
+    associatedId = "student-" + Date.now();
+    let dueAmount = 1500;
+    if (batchId) {
+      const bObj = db.batches.find((b: any) => b.id === batchId);
+      const cObj = bObj ? db.courses.find((c: any) => c.id === bObj.courseId) : null;
+      if (cObj) dueAmount = cObj.fee;
+    }
+    const newStudent: Student = {
+      id: associatedId,
+      name,
+      email,
+      phone: phone || "",
+      parentName: parentName || "N/A",
+      batchId: batchId || "",
+      admissionDate: new Date().toISOString().split("T")[0],
+      feeStatus: "Pending",
+      totalFeesPaid: 0,
+      totalFeesDue: dueAmount,
+      approved: isApproved
+    } as any;
+    db.students.push(newStudent);
+  }
+
+  const newUser = {
+    id: "user-" + Date.now(),
+    email,
+    password: hashPassword(password),
+    name,
+    role,
+    associatedId,
+    approved: isApproved,
+    verifiedDevices: [],
+    phone: phone || "",
+    tokenVersion: 0
+  };
+
+  try {
+    await getAuth().createUser({
+      uid: newUser.id,
+      email: newUser.email,
+      password: password,
+      displayName: newUser.name
+    });
+  } catch (err: any) {
+    console.warn("[Firebase Auth] Signup verification registration warning:", err.message);
+  }
+
+  db.users.push(newUser);
+  db.pendingSignups.splice(index, 1); // remove signup session
+  writeDb(db);
+
+  logAuditAction(req, "Signup OTP Verified", `Registration completed and phone verified for user ${newUser.email}`);
+
+  res.status(201).json({
+    id: newUser.id,
+    email: newUser.email,
+    name: newUser.name,
+    role: newUser.role,
+    associatedId: newUser.associatedId,
+    approved: newUser.approved
+  });
+});
+
+// Authentication - Login with protection and rate-limiting
+app.post("/api/auth/login", async (req, res) => {
+  const db = readDb();
+  const { email, password, deviceId, captchaResponse } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: "Email and password are required." });
   }
 
   const user = db.users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+
+  if (user) {
+    // 1. Account Lockout Protection
+    if (user.lockedUntil && Date.now() < user.lockedUntil) {
+      logAuditAction(req, "Login Blocked", `Attempt to authenticate locked account: ${user.email}`);
+      return res.status(423).json({
+        error: `Account locked due to repeated login failures. Please try again after ${new Date(user.lockedUntil).toLocaleTimeString()}.`
+      });
+    }
+
+    // 2. Progressive Retries Delay
+    if (user.loginDelayMs && user.loginDelayMs > 0) {
+      const delay = Math.min(user.loginDelayMs, 10000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    // 3. CAPTCHA Validation on repeated failures
+    if (user.loginFailures >= 3) {
+      if (!captchaResponse || String(captchaResponse) !== String(user.captchaAnswer)) {
+        const num1 = crypto.randomInt(1, 10);
+        const num2 = crypto.randomInt(1, 10);
+        user.captchaAnswer = String(num1 + num2);
+        writeDb(db);
+        logAuditAction(req, "Login CAPTCHA Prompt", `CAPTCHA requested for user ${user.email}`);
+        return res.status(401).json({
+          requiresCaptcha: true,
+          captchaQuestion: `What is ${num1} + ${num2}?`,
+          error: "Security verification puzzle is required or incorrect."
+        });
+      }
+    }
+  }
+
+  // 4. Verify Password
   if (!user || !verifyPassword(password, user.password)) {
+    if (user) {
+      user.loginFailures = (user.loginFailures || 0) + 1;
+      user.loginDelayMs = Math.max(1000, (user.loginDelayMs || 500) * 2);
+      
+      if (user.loginFailures >= 5) {
+        user.lockedUntil = Date.now() + 30 * 60 * 1000; // 30 mins lockout
+        
+        // Push Alert to Admin notices
+        const lockoutNotice = {
+          id: "notice-lockout-" + Date.now(),
+          title: `Suspicious Activity: Account Lockout for ${user.email}`,
+          content: `The user account ${user.email} (${user.role}) has been locked out for 30 minutes after 5 consecutive failed login attempts. IP: ${req.ip || "unknown"}.`,
+          category: "General" as any,
+          important: true,
+          targetRole: "all" as any,
+          date: new Date().toISOString().split("T")[0],
+          createdBy: "System Security Engine"
+        };
+        db.notices = db.notices || [];
+        db.notices.push(lockoutNotice);
+        
+        logAuditAction(req, "Account Lockout", `Account locked for 30 mins: ${user.email}`);
+      } else {
+        logAuditAction(req, "Login Failure", `Failed password attempt ${user.loginFailures} for user: ${user.email}`);
+      }
+      writeDb(db);
+    } else {
+      logAuditAction(req, "Login Failure", `Attempt with non-existent email: ${email}`);
+    }
     return res.status(401).json({ error: "Incorrect email or password." });
   }
 
@@ -2110,11 +2452,18 @@ app.post("/api/auth/login", (req, res) => {
   if (user.role === "teacher") {
     const teacherRecord = db.teachers.find((t: any) => t.email.toLowerCase() === user.email.toLowerCase() || t.id === user.associatedId);
     if (!teacherRecord || teacherRecord.terminated) {
+      logAuditAction(req, "Login Blocked", `Attempt by terminated instructor: ${user.email}`);
       return res.status(403).json({ error: "Access denied. Your instructor service has been terminated by the administrator." });
     }
   }
 
-  // Device-based OTP Verification for Admin and Faculty Members
+  // Clear fail statistics on successful password check
+  user.loginFailures = 0;
+  user.lockedUntil = null;
+  user.loginDelayMs = 0;
+  delete user.captchaAnswer;
+
+  // Device-based OTP Verification for Sensitive Profiles
   const isAdmin = user.email.toLowerCase() === "the.den.corporation@gmail.com";
   const isTeacher = user.role === "teacher";
 
@@ -2124,24 +2473,27 @@ app.post("/api/auth/login", (req, res) => {
     }
     // If device is not verified, require OTP
     if (!user.verifiedDevices.includes(deviceId)) {
-      const otp = Math.floor(10000 + Math.random() * 90000).toString(); // 5 digit OTP
-      user.tempOtp = otp;
-      user.otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
+      const otp = crypto.randomInt(100000, 999999).toString();
+      user.tempOtpHash = crypto.createHash("sha256").update(otp).digest("hex");
+      user.otpExpires = Date.now() + 5 * 60 * 1000; // 5 minutes
+      user.otpAttempts = 0;
       writeDb(db);
 
-      console.log("=================================================");
-      console.log(`[SECURITY OTP] Generated 5-digit verification code: ${otp} for ${user.email}`);
-      console.log("=================================================");
+      // Send to registered mobile number
+      const phoneToSend = user.phone || "+91 94444 88888";
+      sendSms(phoneToSend, `Your Learner's Den login verification code is: ${otp}. Valid for 5 minutes.`);
+      logAuditAction(req, "OTP Generated", `Login Device Auth OTP generated for ${user.email}`);
 
       return res.json({
         requiresOtp: true,
         email: user.email,
-        debugOtp: otp
+        maskedPhone: maskPhone(phoneToSend),
+        debugOtp: otp // For SMTP Sandbox mock view in developer frame
       });
     }
   }
 
-  // Self-healing default account associations in clean DB context
+  // Self-healing default associations
   let updated = false;
   if (user.role === "teacher" && (!user.associatedId || !db.teachers.some((t: any) => t.id === user.associatedId))) {
     user.associatedId = user.associatedId || "teacher-3";
@@ -2184,7 +2536,6 @@ app.post("/api/auth/login", (req, res) => {
     writeDb(db);
   }
 
-  // Check if student's approval status in student table should sync with user table
   let finalApproved = user.approved;
   if (user.role === "student" && user.associatedId) {
     const studentRecord = db.students.find((s: any) => s.id === user.associatedId);
@@ -2193,7 +2544,9 @@ app.post("/api/auth/login", (req, res) => {
     }
   }
 
-  const token = signJwt({ id: user.id, email: user.email, role: user.role });
+  const token = signJwt({ id: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion || 0 });
+  logAuditAction(req, "Login Success", `User ${user.email} authenticated successfully.`);
+  
   res.json({
     id: user.id,
     email: user.email,
@@ -2219,7 +2572,6 @@ app.post("/api/auth/verify-otp", (req, res) => {
     return res.status(404).json({ error: "User account not found." });
   }
 
-  // Verify faculty is still active during OTP process
   if (user.role === "teacher") {
     const teacherRecord = db.teachers.find((t: any) => t.email.toLowerCase() === user.email.toLowerCase() || t.id === user.associatedId);
     if (!teacherRecord || teacherRecord.terminated) {
@@ -2227,8 +2579,17 @@ app.post("/api/auth/verify-otp", (req, res) => {
     }
   }
 
-  if (!user.tempOtp || user.tempOtp !== otp) {
-    return res.status(400).json({ error: "Invalid verification code. Please check and try again." });
+  if (user.otpAttempts >= 5) {
+    return res.status(400).json({ error: "Maximum OTP attempts exceeded. Please login again to generate a new verification code." });
+  }
+
+  user.otpAttempts = (user.otpAttempts || 0) + 1;
+
+  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+  if (!user.tempOtpHash || user.tempOtpHash !== hashedOtp) {
+    writeDb(db);
+    logAuditAction(req, "OTP Failed Verification", `Incorrect OTP attempt ${user.otpAttempts} for ${user.email}`);
+    return res.status(400).json({ error: "Invalid verification code. Attempts remaining: " + (5 - user.otpAttempts) });
   }
 
   if (user.otpExpires && Date.now() > user.otpExpires) {
@@ -2244,8 +2605,9 @@ app.post("/api/auth/verify-otp", (req, res) => {
   }
 
   // Clear OTP
-  delete user.tempOtp;
+  delete user.tempOtpHash;
   delete user.otpExpires;
+  delete user.otpAttempts;
 
   writeDb(db);
 
@@ -2257,7 +2619,9 @@ app.post("/api/auth/verify-otp", (req, res) => {
     }
   }
 
-  const token = signJwt({ id: user.id, email: user.email, role: user.role });
+  logAuditAction(req, "OTP Verified", `OTP Device authentication successful for ${user.email}`);
+
+  const token = signJwt({ id: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion || 0 });
   res.json({
     id: user.id,
     email: user.email,
@@ -2269,7 +2633,482 @@ app.post("/api/auth/verify-otp", (req, res) => {
   });
 });
 
+// Authentication - Forgot Password (Request OTP via registered mobile)
+app.post("/api/auth/forgot-password/request", (req, res) => {
+  const db = readDb();
+  const { value } = req.body; // Can be email or phone
+
+  if (!value) {
+    return res.status(400).json({ error: "Please enter your registered email or phone number." });
+  }
+
+  const user = db.users.find(
+    (u: any) => u.email.toLowerCase() === value.toLowerCase() || u.phone?.replace(/\s+/g, "") === value.replace(/\s+/g, "")
+  );
+
+  if (!user) {
+    // Prevent account enumeration by returning a vague message but secure behavior
+    return res.json({
+      success: true,
+      message: "If the account exists, a recovery code has been dispatched."
+    });
+  }
+
+  // Generate 6-digit OTP
+  const otp = crypto.randomInt(100000, 999999).toString();
+  user.resetOtpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  user.resetOtpExpires = Date.now() + 5 * 60 * 1000; // 5 mins
+  user.resetOtpAttempts = 0;
+  user.resetVerified = false;
+
+  writeDb(db);
+
+  const phoneToSend = user.phone || "+91 94444 88888";
+  sendSms(phoneToSend, `Your Learner's Den password recovery verification code is: ${otp}. Valid for 5 minutes.`);
+  logAuditAction(req, "Password Recovery OTP Requested", `OTP generated for account recovery of: ${user.email}`);
+
+  res.json({
+    success: true,
+    email: user.email,
+    maskedPhone: maskPhone(phoneToSend),
+    debugOtp: otp // Mock view in dev box
+  });
+});
+
+// Authentication - Forgot Password (Verify Recovery OTP)
+app.post("/api/auth/forgot-password/verify", (req, res) => {
+  const db = readDb();
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ error: "Missing required verification credentials." });
+  }
+
+  const user = db.users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+  if (!user) {
+    return res.status(404).json({ error: "Recovery account not found." });
+  }
+
+  if (user.resetOtpAttempts >= 5) {
+    return res.status(400).json({ error: "Maximum recovery attempts exceeded. Please request a new recovery code." });
+  }
+
+  user.resetOtpAttempts = (user.resetOtpAttempts || 0) + 1;
+
+  const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+  if (!user.resetOtpHash || user.resetOtpHash !== hashedOtp) {
+    writeDb(db);
+    logAuditAction(req, "Password Recovery OTP Failed", `Recovery code mismatch attempt ${user.resetOtpAttempts} for ${user.email}`);
+    return res.status(400).json({ error: "Invalid verification code. Attempts remaining: " + (5 - user.resetOtpAttempts) });
+  }
+
+  if (user.resetOtpExpires && Date.now() > user.resetOtpExpires) {
+    return res.status(400).json({ error: "Recovery code has expired. Please request a new recovery code." });
+  }
+
+  user.resetVerified = true;
+  writeDb(db);
+
+  logAuditAction(req, "Password Recovery OTP Verified", `Recovery code verified successfully for user: ${user.email}`);
+
+  res.json({
+    success: true,
+    email: user.email,
+    message: "Code verified successfully. You may now securely set a new password."
+  });
+});
+
+// Authentication - Forgot Password (Reset Password completion)
+app.post("/api/auth/forgot-password/reset", (req, res) => {
+  const db = readDb();
+  const { email, newPassword } = req.body;
+
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: "Email and new password are required." });
+  }
+
+  const user = db.users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  if (!user.resetVerified) {
+    return res.status(403).json({ error: "Security Exception: Account recovery OTP has not been verified." });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters long and comply with security requirements." });
+  }
+
+  // Save new hashed password
+  user.password = hashPassword(newPassword);
+  
+  // Session Security: Revoke all active sessions on other devices
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+  // Clear recovery states
+  delete user.resetOtpHash;
+  delete user.resetOtpExpires;
+  delete user.resetOtpAttempts;
+  delete user.resetVerified;
+
+  writeDb(db);
+
+  logAuditAction(req, "Password Reset Complete", `Password changed successfully via recovery for: ${user.email}. Revoked other sessions.`);
+
+  res.json({
+    success: true,
+    message: "Your password has been reset successfully. All active sessions have been securely terminated. Please login."
+  });
+});
+
+// Authentication - Forgot Password (Email trigger - Firebase reset link support)
+app.post("/api/auth/forgot-password/email", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "Email is required." });
+  }
+
+  try {
+    const link = await getAuth().generatePasswordResetLink(email);
+    console.log("=================================================");
+    console.log(`[FIREBASE AUTH RESET LINK] Generated recovery link for ${email}: ${link}`);
+    console.log("=================================================");
+    
+    logAuditAction(req, "Password Reset Link Generated", `Firebase reset password link requested for: ${email}`);
+    
+    res.json({
+      success: true,
+      message: "If the email is registered, a secure password reset link has been dispatched to your inbox.",
+      debugLink: link // Sandbox debug option
+    });
+  } catch (err: any) {
+    console.warn("[Firebase Auth] Error generating password reset link:", err.message);
+    res.json({
+      success: true,
+      message: "An email with instructions has been sent if the account is registered."
+    });
+  }
+});
+
+// Authentication - Change Password from Settings Panel (Sensitive verification aware)
+app.post("/api/auth/change-password/request-otp", (req, res) => {
+  const db = readDb();
+  const userId = req.headers["x-user-id"];
+  
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthenticated. Please log in first." });
+  }
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: "User account not found." });
+  }
+
+  const otp = crypto.randomInt(100000, 999999).toString();
+  user.changePasswordOtpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  user.changePasswordOtpExpires = Date.now() + 5 * 60 * 1000;
+  user.changePasswordOtpAttempts = 0;
+
+  writeDb(db);
+
+  const phoneToSend = user.phone || "+91 94444 88888";
+  sendSms(phoneToSend, `Your code for authorizing a password change is: ${otp}. Valid for 5 minutes.`);
+  logAuditAction(req, "Change Password OTP Requested", `User ${user.email} requested OTP to change password.`);
+
+  res.json({
+    success: true,
+    maskedPhone: maskPhone(phoneToSend),
+    debugOtp: otp
+  });
+});
+
+app.post("/api/auth/change-password", (req, res) => {
+  const db = readDb();
+  const userId = req.headers["x-user-id"];
+  const { currentPassword, newPassword, otp } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthenticated. Please log in first." });
+  }
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: "Current password and new password are required." });
+  }
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: "User account not found." });
+  }
+
+  if (!verifyPassword(currentPassword, user.password)) {
+    logAuditAction(req, "Change Password Failed", `Invalid current password verification for: ${user.email}`);
+    return res.status(400).json({ error: "Incorrect current password." });
+  }
+
+  const isSensitiveRole = ["admin", "principal", "accountant"].includes(user.role);
+  if (isSensitiveRole) {
+    if (!otp) {
+      return res.status(400).json({ error: "A security verification code is required to modify sensitive credentials." });
+    }
+
+    if (user.changePasswordOtpAttempts >= 5) {
+      return res.status(400).json({ error: "Maximum OTP validation attempts exceeded. Please request a new security code." });
+    }
+
+    user.changePasswordOtpAttempts = (user.changePasswordOtpAttempts || 0) + 1;
+
+    const hashedOtp = crypto.createHash("sha256").update(otp).digest("hex");
+    if (!user.changePasswordOtpHash || user.changePasswordOtpHash !== hashedOtp) {
+      writeDb(db);
+      logAuditAction(req, "Change Password OTP Failed", `OTP mismatch ${user.changePasswordOtpAttempts}/5 for sensitive password change: ${user.email}`);
+      return res.status(400).json({ error: "Incorrect security verification code." });
+    }
+
+    if (user.changePasswordOtpExpires && Date.now() > user.changePasswordOtpExpires) {
+      return res.status(400).json({ error: "The security verification code has expired. Please request a new code." });
+    }
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: "The new password must be at least 8 characters long." });
+  }
+
+  user.password = hashPassword(newPassword);
+  
+  // Force session revocation
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+  // Clear OTP fields
+  delete user.changePasswordOtpHash;
+  delete user.changePasswordOtpExpires;
+  delete user.changePasswordOtpAttempts;
+
+  writeDb(db);
+
+  logAuditAction(req, "Password Changed", `Password changed successfully for ${user.email}. Other sessions revoked.`);
+
+  res.json({
+    success: true,
+    message: "Your password has been changed successfully. All other active sessions have been revoked."
+  });
+});
+
+// Authentication - Change Mobile Number (2-Step verification aware)
+app.post("/api/auth/change-mobile/request-current-otp", (req, res) => {
+  const db = readDb();
+  const userId = req.headers["x-user-id"];
+  const { currentPassword } = req.body;
+
+  if (!userId) return res.status(401).json({ error: "Unauthenticated. Please login first." });
+  if (!currentPassword) return res.status(400).json({ error: "Verification password is required." });
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) return res.status(404).json({ error: "User account not found." });
+
+  if (!verifyPassword(currentPassword, user.password)) {
+    return res.status(400).json({ error: "Incorrect password verification." });
+  }
+
+  const otp = crypto.randomInt(100000, 999999).toString();
+  user.changeMobileCurrentOtpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  user.changeMobileCurrentOtpExpires = Date.now() + 5 * 60 * 1000;
+  user.changeMobileCurrentAttempts = 0;
+  user.changeMobileCurrentVerified = false;
+
+  writeDb(db);
+
+  const phoneToSend = user.phone || "+91 94444 88888";
+  sendSms(phoneToSend, `Your security verification code for modifying your phone number is: ${otp}. Valid for 5 minutes.`);
+  logAuditAction(req, "Mobile Change OTP 1 Requested", `User ${user.email} initiated phone change step 1.`);
+
+  res.json({
+    success: true,
+    maskedPhone: maskPhone(phoneToSend),
+    debugOtp: otp
+  });
+});
+
+app.post("/api/auth/change-mobile/request-new-otp", (req, res) => {
+  const db = readDb();
+  const userId = req.headers["x-user-id"];
+  const { currentPassword, currentOtp, newPhone } = req.body;
+
+  if (!userId) return res.status(401).json({ error: "Unauthenticated." });
+  if (!currentPassword || !currentOtp || !newPhone) {
+    return res.status(400).json({ error: "Missing required parameters for phone verification." });
+  }
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) return res.status(404).json({ error: "User not found." });
+
+  if (!verifyPassword(currentPassword, user.password)) {
+    return res.status(400).json({ error: "Incorrect password." });
+  }
+
+  if (user.changeMobileCurrentAttempts >= 5) {
+    return res.status(400).json({ error: "Maximum verification attempts exceeded." });
+  }
+
+  user.changeMobileCurrentAttempts = (user.changeMobileCurrentAttempts || 0) + 1;
+
+  const hashedOtp = crypto.createHash("sha256").update(currentOtp).digest("hex");
+  if (!user.changeMobileCurrentOtpHash || user.changeMobileCurrentOtpHash !== hashedOtp) {
+    writeDb(db);
+    return res.status(400).json({ error: "Incorrect current verification code." });
+  }
+
+  if (user.changeMobileCurrentOtpExpires && Date.now() > user.changeMobileCurrentOtpExpires) {
+    return res.status(400).json({ error: "Verification code expired." });
+  }
+
+  user.changeMobileCurrentVerified = true;
+
+  // Now, generate and send OTP to the new phone number
+  const otp = crypto.randomInt(100000, 999999).toString();
+  user.changeMobileNewOtpHash = crypto.createHash("sha256").update(otp).digest("hex");
+  user.changeMobileNewOtpExpires = Date.now() + 5 * 60 * 1000;
+  user.changeMobileNewAttempts = 0;
+  user.changeMobilePendingPhone = newPhone;
+
+  writeDb(db);
+
+  sendSms(newPhone, `Your verification code for confirming this new phone number is: ${otp}. Valid for 5 minutes.`);
+  logAuditAction(req, "Mobile Change OTP 2 Sent", `SMS sent to proposed new phone ${newPhone} for ${user.email}`);
+
+  res.json({
+    success: true,
+    maskedPhone: maskPhone(newPhone),
+    debugOtp: otp
+  });
+});
+
+app.post("/api/auth/change-mobile/verify-and-update", (req, res) => {
+  const db = readDb();
+  const userId = req.headers["x-user-id"];
+  const { currentPassword, newOtp } = req.body;
+
+  if (!userId) return res.status(401).json({ error: "Unauthenticated." });
+  if (!currentPassword || !newOtp) {
+    return res.status(400).json({ error: "Missing password or verification code." });
+  }
+
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) return res.status(404).json({ error: "User not found." });
+
+  if (!verifyPassword(currentPassword, user.password)) {
+    return res.status(400).json({ error: "Incorrect password." });
+  }
+
+  if (!user.changeMobileCurrentVerified) {
+    return res.status(400).json({ error: "Security Exception: Current phone verification step was skipped." });
+  }
+
+  if (user.changeMobileNewAttempts >= 5) {
+    return res.status(400).json({ error: "Maximum attempts exceeded." });
+  }
+
+  user.changeMobileNewAttempts = (user.changeMobileNewAttempts || 0) + 1;
+
+  const hashedOtp = crypto.createHash("sha256").update(newOtp).digest("hex");
+  if (!user.changeMobileNewOtpHash || user.changeMobileNewOtpHash !== hashedOtp) {
+    writeDb(db);
+    return res.status(400).json({ error: "Incorrect verification code sent to new phone number." });
+  }
+
+  if (user.changeMobileNewOtpExpires && Date.now() > user.changeMobileNewOtpExpires) {
+    return res.status(400).json({ error: "Verification code has expired." });
+  }
+
+  // Update complete! Save phone
+  const oldPhone = user.phone || "";
+  const newPhone = user.changeMobilePendingPhone;
+  user.phone = newPhone;
+
+  // Sync details in student/teacher profiles
+  if (user.role === "teacher" && user.associatedId) {
+    const teacher = db.teachers.find((t: any) => t.id === user.associatedId);
+    if (teacher) teacher.phone = newPhone;
+  } else if (user.role === "student" && user.associatedId) {
+    const student = db.students.find((s: any) => s.id === user.associatedId);
+    if (student) student.phone = newPhone;
+  }
+
+  // Clear states
+  delete user.changeMobileCurrentOtpHash;
+  delete user.changeMobileCurrentOtpExpires;
+  delete user.changeMobileCurrentAttempts;
+  delete user.changeMobileCurrentVerified;
+  delete user.changeMobileNewOtpHash;
+  delete user.changeMobileNewOtpExpires;
+  delete user.changeMobileNewAttempts;
+  delete user.changeMobilePendingPhone;
+
+  writeDb(db);
+
+  logAuditAction(req, "Mobile Number Changed", `Changed phone number from ${oldPhone} to ${newPhone} for ${user.email}`);
+
+  res.json({
+    success: true,
+    phone: newPhone,
+    message: "Your phone number has been updated successfully."
+  });
+});
+
 // System Performance, Diagnostics, and Logs Endpoints
+function logAuditAction(req: any, action: string, details: string) {
+  try {
+    const db = readDb();
+    if (!db.auditLogs) {
+      db.auditLogs = [];
+    }
+    const userId = req.headers["x-user-id"] || "system";
+    const userRole = req.headers["x-user-role"] || "system";
+    const userRecord = db.users ? db.users.find((u: any) => u.id === userId) : null;
+    const userEmail = userRecord ? userRecord.email : "system@learnerden.com";
+    const userName = userRecord ? userRecord.name : "System Daemon";
+
+    const logEntry = {
+      id: "audit-" + Date.now() + "-" + Math.random().toString(36).substring(2, 6),
+      timestamp: new Date().toISOString(),
+      userId,
+      userEmail,
+      userName,
+      userRole,
+      action,
+      details,
+      ip: req.ip || req.headers["x-forwarded-for"] || "unknown"
+    };
+    db.auditLogs.push(logEntry);
+    if (db.auditLogs.length > 500) {
+      db.auditLogs = db.auditLogs.slice(-500);
+    }
+    writeDb(db);
+  } catch (err) {
+    console.error("Failed to write audit log:", err);
+  }
+}
+
+app.get("/api/system/audit-logs", (req, res) => {
+  const role = req.headers["x-user-role"];
+  if (role !== "admin" && role !== "principal") {
+    return res.status(403).json({ error: "Access Denied: Insufficient Privileges to view audit logs." });
+  }
+  const db = readDb();
+  res.json({ auditLogs: db.auditLogs || [] });
+});
+
+app.post("/api/system/audit-logs/clear", (req, res) => {
+  const role = req.headers["x-user-role"];
+  if (role !== "admin") {
+    return res.status(403).json({ error: "Access Denied: Only administrators can clear audit logs." });
+  }
+  const db = readDb();
+  db.auditLogs = [];
+  writeDb(db);
+  res.json({ status: "success", message: "Audit logs cleared successfully." });
+});
+
 app.get("/api/system/logs", (req, res) => {
   const db = readDb();
   res.json({ crashLogs: db.crashLogs || [] });
@@ -2706,7 +3545,12 @@ app.get("/api/stats", (req, res) => {
 // Students CRUD
 app.get("/api/students", (req, res) => {
   const db = readDb();
-  res.json(db.students);
+  const paginated = paginateList(db.students, req.query.page, req.query.limit);
+  if (paginated) {
+    res.json(paginated);
+  } else {
+    res.json(db.students);
+  }
 });
 
 app.post("/api/students", (req, res) => {
@@ -2726,6 +3570,7 @@ app.post("/api/students", (req, res) => {
   };
   db.students.push(newStudent);
   writeDb(db);
+  logAuditAction(req, "Student Enrolled", `Enrolled student: ${newStudent.name} (${newStudent.email}) to batch ID: ${newStudent.batchId || "unassigned"}`);
   res.status(201).json(newStudent);
 });
 
@@ -2782,6 +3627,7 @@ app.put("/api/students/:id", (req, res) => {
       modificationHistory
     };
     writeDb(db);
+    logAuditAction(req, "Student Updated", `Updated fields for student ${oldVal.name} (${req.params.id}). Changes: ${changedKeys.join(", ")}`);
     res.json(db.students[index]);
   } else {
     res.status(404).json({ error: "Student not found" });
@@ -2818,8 +3664,17 @@ app.delete("/api/students/:id", (req, res) => {
     if (db.savedPathways) {
       delete db.savedPathways[studentId];
     }
+    // 5. Clean up library book download history
+    if (Array.isArray(db.books)) {
+      db.books.forEach((b: any) => {
+        if (Array.isArray(b.downloadHistory)) {
+          b.downloadHistory = b.downloadHistory.filter((dh: any) => dh.studentId !== studentId);
+        }
+      });
+    }
     
     writeDb(db);
+    logAuditAction(req, "Student Deleted", `Deleted student: ${student ? student.name : 'Unknown'} (${studentId}) and cascade-deleted all dependent registers.`);
     res.json({ success: true, message: "Student and all dependent registers cascade deleted successfully." });
   } else {
     res.status(404).json({ error: "Student not found" });
@@ -3029,7 +3884,12 @@ app.delete("/api/teachers/:id", (req, res) => {
 // Materials CRUD
 app.get("/api/materials", (req, res) => {
   const db = readDb();
-  res.json(db.materials);
+  const paginated = paginateList(db.materials, req.query.page, req.query.limit);
+  if (paginated) {
+    res.json(paginated);
+  } else {
+    res.json(db.materials);
+  }
 });
 
 app.post("/api/materials", (req, res) => {
@@ -3390,7 +4250,12 @@ app.delete("/api/quizzes/:id", (req, res) => {
 // Attendance Management
 app.get("/api/attendance", (req, res) => {
   const db = readDb();
-  res.json(db.attendance);
+  const paginated = paginateList(db.attendance, req.query.page, req.query.limit);
+  if (paginated) {
+    res.json(paginated);
+  } else {
+    res.json(db.attendance);
+  }
 });
 
 app.post("/api/attendance", (req, res) => {
@@ -3885,7 +4750,12 @@ app.post("/api/payment-settings", (req, res) => {
 
 app.get("/api/fees", (req, res) => {
   const db = readDb();
-  res.json(db.fees);
+  const paginated = paginateList(db.fees, req.query.page, req.query.limit);
+  if (paginated) {
+    res.json(paginated);
+  } else {
+    res.json(db.fees);
+  }
 });
 
 app.post("/api/fees", (req, res) => {
@@ -3954,6 +4824,7 @@ app.post("/api/fees", (req, res) => {
 
   db.fees.push(newReceipt);
   writeDb(db);
+  logAuditAction(req, "Fee Receipt Generated", `Generated fee receipt: ${newReceipt.receiptNo} for student: ${student.name} (${studentId}). Amount: ${paidAmount}. Mode: ${newReceipt.paymentMode}`);
   res.status(201).json({ receipt: newReceipt, student });
 });
 

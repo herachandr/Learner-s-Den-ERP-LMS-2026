@@ -32,6 +32,43 @@ export default function PassportPhotoUpload({
     }
   };
 
+  const compressAndResizeImage = (base64Str: string, maxWidth = 150, maxHeight = 200): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.7); // 70% quality JPEG compression
+          resolve(compressed);
+        } else {
+          resolve(base64Str);
+        }
+      };
+      img.onerror = () => resolve(base64Str);
+      img.src = base64Str;
+    });
+  };
+
   const processFile = (file: File) => {
     if (!file.type.startsWith("image/")) {
       showToast("Invalid File Type", "Please select a professional passport image file (.jpg, .png, .jpeg).");
@@ -46,8 +83,18 @@ export default function PassportPhotoUpload({
     const reader = new FileReader();
     reader.onload = async (e) => {
       const base64 = e.target?.result as string;
-      setPreviewUrl(base64);
-      await uploadPhoto(base64);
+      setUploading(true);
+      try {
+        const compressedBase64 = await compressAndResizeImage(base64);
+        setPreviewUrl(compressedBase64);
+        await uploadPhoto(compressedBase64);
+      } catch (err) {
+        console.error("Client-side compression failed, uploading raw:", err);
+        setPreviewUrl(base64);
+        await uploadPhoto(base64);
+      } finally {
+        setUploading(false);
+      }
     };
     reader.readAsDataURL(file);
   };
